@@ -21,6 +21,7 @@ use MailPoet\Subscription\Manage;
 use MailPoet\Subscription\Registration;
 use MailPoet\WooCommerce\Helper as WooHelper;
 use MailPoet\WooCommerce\Integrations\AutomateWooHooks;
+use MailPoet\WooCommerce\OrderAttributionFields;
 use MailPoet\WooCommerce\Subscription;
 use MailPoet\WooCommerce\WooSystemInfoController;
 use MailPoet\WP\Functions as WPFunctions;
@@ -111,6 +112,9 @@ class Hooks {
   /** @var AdminUserSubscription */
   private $adminUserSubscription;
 
+  /** @var OrderAttributionFields */
+  private $orderAttributionFields;
+
   private CouponBlockGenerator $couponBlockGenerator;
 
   public function __construct(
@@ -137,6 +141,7 @@ class Hooks {
     CronTrigger $cronTrigger,
     WooHelper $wooHelper,
     AdminUserSubscription $adminUserSubscription,
+    OrderAttributionFields $orderAttributionFields,
     CouponBlockGenerator $couponBlockGenerator
   ) {
     $this->subscriptionForm = $subscriptionForm;
@@ -162,6 +167,7 @@ class Hooks {
     $this->cronTrigger = $cronTrigger;
     $this->wooHelper = $wooHelper;
     $this->adminUserSubscription = $adminUserSubscription;
+    $this->orderAttributionFields = $orderAttributionFields;
     $this->couponBlockGenerator = $couponBlockGenerator;
   }
 
@@ -169,6 +175,7 @@ class Hooks {
     $this->setupWPUsers();
     $this->setupWooCommerceUsers();
     $this->setupWooCommercePurchases();
+    $this->setupWooCommerceOrderAttribution();
     $this->setupWooCommerceSubscriberEngagement();
     $this->setupWooCommerceTracking();
     $this->setupListing();
@@ -191,6 +198,8 @@ class Hooks {
 
   public function initEarlyHooks() {
     $this->setupMailer();
+    // Must run before the WooCommerce plugin file loads, see OrderAttributionFields::setup()
+    $this->orderAttributionFields->setup();
   }
 
   public function setupSubscriptionEvents() {
@@ -520,6 +529,34 @@ class Hooks {
       [$this->hooksWooCommerce, 'trackRefund'],
       10,
       1
+    );
+  }
+
+  public function setupWooCommerceOrderAttribution() {
+    // After Woo's own priority-10 handler so the resolved values overwrite
+    // the empty placeholders Woo persists from the checkout form
+    $this->wp->addAction(
+      'woocommerce_order_save_attribution_data',
+      [$this->hooksWooCommerce, 'writeOrderAttribution'],
+      20
+    );
+    // Admin and REST orders; gated inside to stay out of storefront checkout
+    $this->wp->addAction(
+      'woocommerce_new_order',
+      [$this->hooksWooCommerce, 'writeOrderAttributionForNewOrder'],
+      20
+    );
+    $this->wp->addAction(
+      'woocommerce_order_status_changed',
+      [$this->hooksWooCommerce, 'writeOrderAttribution'],
+      10,
+      1
+    );
+    // After WC_Meta_Box_Order_Data::save (priority 40) so the billing email is saved
+    $this->wp->addAction(
+      'woocommerce_process_shop_order_meta',
+      [$this->hooksWooCommerce, 'writeOrderAttribution'],
+      50
     );
   }
 
