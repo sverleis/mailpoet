@@ -864,18 +864,15 @@ function SubscriberList() {
 
   const handleViewChange = useCallback(
     (nextView: SetStateAction<View>): void => {
-      const next = typeof nextView === 'function' ? nextView(view) : nextView;
-      const scopeChanged =
-        next.search !== view.search ||
-        next.sort?.field !== view.sort?.field ||
-        next.sort?.direction !== view.sort?.direction;
-      if (scopeChanged) {
-        setSelectAll(false);
-      }
-      setView(next);
+      // DataViews can't keep row checkboxes ticked across pages, so "select all
+      // matching" would leave the banner claiming everything is selected while
+      // the new page shows empty checkboxes. Drop the intent on any view change
+      // (page, per-page, search, sort) so the banner never contradicts the rows.
+      setSelectAll(false);
       setSelection([]);
+      setView(nextView);
     },
-    [setView, view],
+    [setView],
   );
 
   const handleApiError = useCallback(
