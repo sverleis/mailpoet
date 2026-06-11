@@ -569,9 +569,15 @@ function PickerModal({
   };
 
   return (
-    <Modal title={title} onRequestClose={onClose} isDismissible>
+    <Modal
+      title={title}
+      onRequestClose={onClose}
+      isDismissible
+      contentClassName="mailpoet-subscribers-picker-modal"
+    >
       <Selection
         field={fieldConfig}
+        width="100%"
         onValueChange={(event: { target: { value: string | number } }) => {
           const next = Number(event.target.value);
           setValue(Number.isFinite(next) ? next : 0);
@@ -579,12 +585,7 @@ function PickerModal({
       />
       {caveat}
       <div className="mailpoet-subscribers-bulk-confirm-actions">
-        <Button
-          onClick={handleApply}
-          dimension="small"
-          variant="secondary"
-          isDisabled={!value}
-        >
+        <Button onClick={handleApply} variant="secondary" isDisabled={!value}>
           {__('Apply', 'mailpoet')}
         </Button>
       </div>
@@ -1289,7 +1290,6 @@ function SubscriberList() {
           <div className="mailpoet-subscribers-bulk-confirm-actions">
             <Button
               onClick={() => handlePendingActionSubmit()}
-              dimension="small"
               variant="secondary"
               automationId="bulk-select-all-confirm"
             >
@@ -1317,7 +1317,6 @@ function SubscriberList() {
           <div className="mailpoet-subscribers-bulk-confirm-actions">
             <Button
               onClick={() => handlePendingActionSubmit()}
-              dimension="small"
               variant="secondary"
               automationId="bulk-unsubscribe-confirm"
             >
