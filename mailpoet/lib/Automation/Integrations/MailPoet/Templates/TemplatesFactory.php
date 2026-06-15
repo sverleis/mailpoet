@@ -246,7 +246,16 @@ class TemplatesFactory {
         'Welcome your first-time customers by sending an email with a special offer for their next purchase. Make them feel appreciated within your brand.',
         'mailpoet'
       ),
-      function (): Automation {
+      function (bool $preview = false): Automation {
+        $emailArgs = $this->createBlockEditorEmailArgs(
+          $preview,
+          'first-purchase-thank-you',
+          __('First purchase thank you', 'mailpoet'),
+          __('Thank you for your first order!', 'mailpoet'),
+          __('Welcome to the family! Check out what’s next for you.', 'mailpoet'),
+          'first-purchase'
+        );
+
         return $this->builder->createFromSequence(
           __('Celebrate first-time buyers', 'mailpoet'),
           [
@@ -266,10 +275,7 @@ class TemplatesFactory {
             ],
             [
               'key' => 'mailpoet:send-email',
-              'args' => [
-                'name' => __('Thank you', 'mailpoet'),
-                'subject' => __('Thank You for Choosing Us!', 'mailpoet'),
-              ],
+              'args' => $emailArgs,
             ],
           ],
           [
@@ -406,7 +412,16 @@ class TemplatesFactory {
         'Share care instructions or simply thank the customer for making an order.',
         'mailpoet'
       ),
-      function (): Automation {
+      function (bool $preview = false): Automation {
+        $emailArgs = $this->createBlockEditorEmailArgs(
+          $preview,
+          'product-purchase-follow-up',
+          __('Important information about your order', 'mailpoet'),
+          __('Important information about your order', 'mailpoet'),
+          __('A few details about your purchase', 'mailpoet'),
+          'purchased-product'
+        );
+
         return $this->builder->createFromSequence(
           __('Purchased a product', 'mailpoet'),
           [
@@ -415,10 +430,7 @@ class TemplatesFactory {
             ],
             [
               'key' => 'mailpoet:send-email',
-              'args' => [
-                'name' => __('Important information about your order', 'mailpoet'),
-                'subject' => __('Important information about your order', 'mailpoet'),
-              ],
+              'args' => $emailArgs,
             ],
           ]
         );
@@ -440,7 +452,16 @@ class TemplatesFactory {
         'Share care instructions or simply thank the customer for making an order.',
         'mailpoet'
       ),
-      function (): Automation {
+      function (bool $preview = false): Automation {
+        $emailArgs = $this->createBlockEditorEmailArgs(
+          $preview,
+          'tag-purchase-follow-up',
+          __('Important information about your order', 'mailpoet'),
+          __('Important information about your order', 'mailpoet'),
+          __('A few details about your purchase', 'mailpoet'),
+          'purchased-product-with-tag'
+        );
+
         return $this->builder->createFromSequence(
           __('Purchased a product with a tag', 'mailpoet'),
           [
@@ -449,10 +470,7 @@ class TemplatesFactory {
             ],
             [
               'key' => 'mailpoet:send-email',
-              'args' => [
-                'name' => __('Important information about your order', 'mailpoet'),
-                'subject' => __('Important information about your order', 'mailpoet'),
-              ],
+              'args' => $emailArgs,
             ],
           ]
         );
@@ -474,7 +492,16 @@ class TemplatesFactory {
         'Share care instructions or simply thank the customer for making an order.',
         'mailpoet'
       ),
-      function (): Automation {
+      function (bool $preview = false): Automation {
+        $emailArgs = $this->createBlockEditorEmailArgs(
+          $preview,
+          'category-purchase-follow-up',
+          __('Important information about your order', 'mailpoet'),
+          __('Important information about your order', 'mailpoet'),
+          __('A few details about your purchase', 'mailpoet'),
+          'purchased-in-category'
+        );
+
         return $this->builder->createFromSequence(
           __('Purchased in a category', 'mailpoet'),
           [
@@ -483,10 +510,7 @@ class TemplatesFactory {
             ],
             [
               'key' => 'mailpoet:send-email',
-              'args' => [
-                'name' => __('Important information about your order', 'mailpoet'),
-                'subject' => __('Important information about your order', 'mailpoet'),
-              ],
+              'args' => $emailArgs,
             ],
           ]
         );

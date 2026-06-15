@@ -178,7 +178,6 @@ class Hooks {
     $this->setupWooCommerceOrderAttribution();
     $this->setupWooCommerceSubscriberEngagement();
     $this->setupWooCommerceTracking();
-    $this->setupListing();
     $this->setupSubscriptionEvents();
     $this->setupWooCommerceSubscriptionEvents();
     $this->setupAutomateWooSubscriptionEvents();
@@ -533,6 +532,13 @@ class Hooks {
   }
 
   public function setupWooCommerceOrderAttribution() {
+    // The reconciliation boundary must be persisted before any post-activation
+    // order exists, and on the init hook because this setup runs on
+    // plugins_loaded, where WooCommerce may not be loaded yet
+    $this->wp->addAction(
+      'init',
+      [$this->hooksWooCommerce, 'markAttributionWritesStarted']
+    );
     // After Woo's own priority-10 handler so the resolved values overwrite
     // the empty placeholders Woo persists from the checkout form
     $this->wp->addAction(
@@ -558,6 +564,26 @@ class Hooks {
       [$this->hooksWooCommerce, 'writeOrderAttribution'],
       50
     );
+    // Reconciliation (STOMAIL-8136) must run after both the legacy purchase
+    // tracker and the attribution writer (priority 10 on the same hooks)
+    $this->wp->addAction(
+      'woocommerce_order_status_changed',
+      [$this->hooksWooCommerce, 'reconcileOrderAttribution'],
+      20,
+      1
+    );
+    $this->wp->addAction(
+      'woocommerce_order_refunded',
+      [$this->hooksWooCommerce, 'reconcileOrderAttributionOnRefund'],
+      20,
+      1
+    );
+    // Woo's order anonymization does not cover _wc_order_attribution_* meta,
+    // so the MailPoet identifiers must be removed explicitly (STOMAIL-8137)
+    $this->wp->addAction(
+      'woocommerce_privacy_remove_order_personal_data',
+      [$this->hooksWooCommerce, 'removeOrderAttributionPersonalData']
+    );
   }
 
   public function setupWooCommerceSubscriberEngagement() {
@@ -580,23 +606,6 @@ class Hooks {
       [$this->hooksWooCommerce, 'addTrackingData'],
       10
     );
-  }
-
-  public function setupListing() {
-    $this->wp->addFilter(
-      'set-screen-option',
-      [$this, 'setScreenOption'],
-      10,
-      3
-    );
-  }
-
-  public function setScreenOption($status, $option, $value) {
-    if (preg_match('/^mailpoet_(.*)_per_page$/', $option)) {
-      return $value;
-    } else {
-      return $status;
-    }
   }
 
   public function setupPostNotifications() {

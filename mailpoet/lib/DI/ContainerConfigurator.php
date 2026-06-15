@@ -388,6 +388,7 @@ class ContainerConfigurator implements IContainerConfigurator {
     $container->autowire(\MailPoet\EmailEditor\Integrations\MailPoet\Coupons\CouponBlockValidator::class)->setPublic(true);
     $container->autowire(\MailPoet\EmailEditor\Integrations\MailPoet\Coupons\EmailContextBuilder::class)->setPublic(true);
     $container->autowire(\MailPoet\EmailEditor\Integrations\MailPoet\Patterns\PatternsController::class)->setPublic(true);
+    $container->autowire(\MailPoet\EmailEditor\Integrations\MailPoet\ProductCollection\OrderProductCollectionProcessor::class)->setPublic(true);
     $container->autowire(\MailPoet\EmailEditor\Integrations\MailPoet\PersonalizationTags\Link::class)->setPublic(true);
     $container->autowire(\MailPoet\EmailEditor\Integrations\MailPoet\PersonalizationTags\LinksToShortcodesConvertor::class)->setPublic(true);
     $container->autowire(\MailPoet\EmailEditor\Integrations\MailPoet\PersonalizationTags\OrderReviewUrl::class)->setPublic(true);
@@ -693,6 +694,9 @@ class ContainerConfigurator implements IContainerConfigurator {
     $container->autowire(\MailPoet\WooCommerce\Helper::class)->setPublic(true);
     $container->autowire(\MailPoet\WooCommerce\Integrations\AutomateWooHooks::class)->setPublic(true);
     $container->autowire(\MailPoet\WooCommerce\OrderAttributionFields::class)->setPublic(true);
+    $container->autowire(\MailPoet\WooCommerce\OrderAttributionPrivacy::class)->setPublic(true);
+    $container->autowire(\MailPoet\WooCommerce\OrderAttributionReconciler::class)->setPublic(true);
+    $container->autowire(\MailPoet\WooCommerce\OrderAttributionRevenueReader::class)->setPublic(true);
     $container->autowire(\MailPoet\WooCommerce\OrderAttributionWriter::class)->setPublic(true);
     $container->autowire(\MailPoet\WooCommerce\Settings::class)->setPublic(true);
     $container->autowire(\MailPoet\WooCommerce\SubscriberEngagement::class)->setPublic(true);

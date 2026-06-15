@@ -6,7 +6,12 @@ import { DataViews, View, Action } from '@wordpress/dataviews';
 import { MailPoet } from 'mailpoet';
 import { Button } from 'common';
 import { withNpsPoll } from 'nps-poll.jsx';
-import { useDataViewsQuery, type ListingQueryParams } from 'common/dataviews';
+import {
+  getDataViewsPreference,
+  usePersistedDataViewsPreference,
+  useDataViewsQuery,
+  type ListingQueryParams,
+} from 'common/dataviews';
 import { FormsHeading, onAddNewForm } from './heading';
 import { listFields } from './fields';
 import {
@@ -76,6 +81,9 @@ function FormListComponent(): JSX.Element {
   const [selection, setSelection] = useState<string[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [globalSuccess, setGlobalSuccess] = useState<string | null>(null);
+  const [initialView] = useState<View>(() =>
+    getDataViewsPreference('forms', DEFAULT_VIEW, listFields),
+  );
 
   const load = useCallback(
     (params: ListingQueryParams) => getForms({ ...params, group }),
@@ -90,12 +98,18 @@ function FormListComponent(): JSX.Element {
     groups,
     isLoading,
     error: loadError,
+    onChangeView,
     clearError: clearLoadError,
     refresh,
   } = useDataViewsQuery<FormListingItem>({
-    initialView: DEFAULT_VIEW,
+    initialView,
     load,
   });
+  const handleViewChange = usePersistedDataViewsPreference(
+    'forms',
+    view,
+    onChangeView,
+  );
 
   // Surface broken-settings forms via the global notice system so admins
   // know to repair them. Each form is warned about at most once per page
@@ -332,7 +346,7 @@ function FormListComponent(): JSX.Element {
               data={items}
               fields={listFields}
               view={view}
-              onChangeView={setView}
+              onChangeView={handleViewChange}
               actions={actions}
               paginationInfo={paginationInfo}
               defaultLayouts={{ table: {} }}
@@ -355,6 +369,9 @@ function FormListComponent(): JSX.Element {
             >
               <div className="mailpoet-forms-dataviews__toolbar">
                 <DataViews.Search label={__('Search forms', 'mailpoet')} />
+                <div className="mailpoet-dataviews__toolbar-end">
+                  <DataViews.ViewConfig />
+                </div>
               </div>
               <DataViews.Layout />
               <DataViews.Footer />

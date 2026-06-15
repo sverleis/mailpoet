@@ -5,9 +5,11 @@ import { DataViews, View, Action } from '@wordpress/dataviews';
 import { BackButton, PageHeader } from 'common/page-header';
 import { TopBarWithBoundary } from 'common/top-bar/top-bar';
 import {
+  getDataViewsPreference,
   type LoadListing,
+  usePersistedDataViewsPreference,
   useDataViewsQuery,
-} from 'common/dataviews/use-dataviews-query';
+} from 'common/dataviews';
 import type { ListingGroup } from 'common/dataviews/types';
 import { CustomFieldsForm } from './custom-fields-form';
 import { listFields } from './fields';
@@ -104,6 +106,9 @@ export function CustomFieldsPage() {
   const [selection, setSelection] = useState<string[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [globalSuccess, setGlobalSuccess] = useState<string | null>(null);
+  const [initialView] = useState<View>(() =>
+    getDataViewsPreference('custom-fields', DEFAULT_VIEW, listFields),
+  );
 
   const load = useCallback<LoadListing<CustomField>>(
     async (params) => {
@@ -132,12 +137,18 @@ export function CustomFieldsPage() {
     groups,
     isLoading,
     error: loadError,
+    onChangeView,
     refresh,
     clearError: clearLoadError,
   } = useDataViewsQuery<CustomField>({
-    initialView: DEFAULT_VIEW,
+    initialView,
     load,
   });
+  const handleViewChange = usePersistedDataViewsPreference(
+    'custom-fields',
+    view,
+    onChangeView,
+  );
 
   const handleBulkAction = useCallback(
     async (
@@ -412,7 +423,7 @@ export function CustomFieldsPage() {
               data={items}
               fields={listFields}
               view={view}
-              onChangeView={setView}
+              onChangeView={handleViewChange}
               actions={actions}
               paginationInfo={paginationInfo}
               defaultLayouts={{ table: {} }}
@@ -426,6 +437,9 @@ export function CustomFieldsPage() {
                 <DataViews.Search
                   label={__('Search custom fields', 'mailpoet')}
                 />
+                <div className="mailpoet-dataviews__toolbar-end">
+                  <DataViews.ViewConfig />
+                </div>
               </div>
               {group === 'trash' && (groupCounts.trash ?? 0) > 0 && (
                 <div className="mailpoet-custom-fields-dataviews__toolbar">

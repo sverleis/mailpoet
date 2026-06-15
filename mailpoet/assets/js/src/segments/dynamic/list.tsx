@@ -7,7 +7,12 @@ import {
 } from '@wordpress/components';
 import { DataViews, View, Action } from '@wordpress/dataviews';
 import { escapeHTML } from '@wordpress/escape-html';
-import { useDataViewsQuery, type ListingQueryParams } from 'common/dataviews';
+import {
+  getDataViewsPreference,
+  usePersistedDataViewsPreference,
+  useDataViewsQuery,
+  type ListingQueryParams,
+} from 'common/dataviews';
 import { Notices } from './list/notices';
 import { getSegmentsQuery, updateSegmentsQuery } from './list/query';
 import * as ROUTES from '../routes';
@@ -41,9 +46,25 @@ const DEFAULT_VIEW_BASE: View = {
   showTitle: true,
 };
 
-function viewFromQuery(query: ReturnType<typeof getSegmentsQuery>): View {
+// The hash omits values that equal the query defaults, so the persisted
+// view preference must be part of the defaults — otherwise an empty hash
+// would always reset sort and per-page back to the hardcoded values.
+function queryDefaultsFromView(
+  view: View,
+): Partial<ReturnType<typeof getSegmentsQuery>> {
   return {
-    ...DEFAULT_VIEW_BASE,
+    limit: view.perPage ?? 25,
+    sort_by: view.sort?.field ?? 'updated_at',
+    sort_order: view.sort?.direction ?? 'desc',
+  };
+}
+
+function viewFromQuery(
+  query: ReturnType<typeof getSegmentsQuery>,
+  defaultView = DEFAULT_VIEW_BASE,
+): View {
+  return {
+    ...defaultView,
     perPage: query.limit,
     page: Math.floor(query.offset / query.limit) + 1,
     search: query.search,
@@ -195,7 +216,31 @@ function confirmCopy(pendingAction: PendingAction): {
 }
 
 export function DynamicSegmentList(): JSX.Element {
-  const [initialQuery] = useState(() => getSegmentsQuery());
+  // Resolved at call time (not mount time) so query defaults reflect
+  // preferences persisted during the session.
+  const getQueryDefaults = useCallback(
+    () =>
+      queryDefaultsFromView(
+        getDataViewsPreference(
+          'dynamic-segments',
+          DEFAULT_VIEW_BASE,
+          dynamicSegmentFields,
+        ),
+      ),
+    [],
+  );
+  const defaultView = useMemo(
+    () =>
+      getDataViewsPreference(
+        'dynamic-segments',
+        DEFAULT_VIEW_BASE,
+        dynamicSegmentFields,
+      ),
+    [],
+  );
+  const [initialQuery] = useState(() =>
+    getSegmentsQuery(window.location.hash, getQueryDefaults()),
+  );
   const [group, setGroup] = useState<Group>(initialQuery.group as Group);
   const [selection, setSelection] = useState<string[]>([]);
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -204,7 +249,7 @@ export function DynamicSegmentList(): JSX.Element {
   const legacyOffsetRef = useRef<number | null>(
     usesNonPageAlignedOffset(initialQuery) ? initialQuery.offset : null,
   );
-  const latestViewRef = useRef<View>(viewFromQuery(initialQuery));
+  const latestViewRef = useRef<View>(viewFromQuery(initialQuery, defaultView));
   const latestGroupRef = useRef<Group>(initialQuery.group as Group);
 
   const load = useCallback(
@@ -220,10 +265,11 @@ export function DynamicSegmentList(): JSX.Element {
     groups,
     isLoading,
     error: loadError,
+    onChangeView,
     clearError: clearLoadError,
     refresh,
   } = useDataViewsQuery<DynamicSegmentListingItem>({
-    initialView: viewFromQuery(initialQuery),
+    initialView: viewFromQuery(initialQuery, defaultView),
     load,
     extraParams: (currentView) => {
       if (
@@ -261,19 +307,25 @@ export function DynamicSegmentList(): JSX.Element {
     ) {
       return;
     }
-    updateSegmentsQuery({
-      group,
-      limit: view.perPage ?? 25,
-      offset: ((view.page ?? 1) - 1) * (view.perPage ?? 25),
-      search: view.search ?? '',
-      sort_by: view.sort?.field ?? 'updated_at',
-      sort_order: view.sort?.direction ?? 'desc',
-    });
-  }, [group, initialQuery, view]);
+    updateSegmentsQuery(
+      {
+        group,
+        limit: view.perPage ?? 25,
+        offset: ((view.page ?? 1) - 1) * (view.perPage ?? 25),
+        search: view.search ?? '',
+        sort_by: view.sort?.field ?? 'updated_at',
+        sort_order: view.sort?.direction ?? 'desc',
+      },
+      getQueryDefaults(),
+    );
+  }, [getQueryDefaults, group, initialQuery, view]);
 
   useEffect(() => {
     const applyHashState = (): void => {
-      const nextQuery = getSegmentsQuery();
+      const nextQuery = getSegmentsQuery(
+        window.location.hash,
+        getQueryDefaults(),
+      );
       const nextGroup = nextQuery.group as Group;
       legacyOffsetRef.current = usesNonPageAlignedOffset(nextQuery)
         ? nextQuery.offset
@@ -282,10 +334,13 @@ export function DynamicSegmentList(): JSX.Element {
         setGroup(nextGroup);
       }
       if (!viewMatchesQuery(latestViewRef.current, nextQuery)) {
+        // Rebuild from the current view, not the default one, so state the
+        // hash doesn't encode (active DataViews filters, column choices)
+        // survives browser navigation.
         setView((currentView) =>
           viewMatchesQuery(currentView, nextQuery)
             ? currentView
-            : viewFromQuery(nextQuery),
+            : viewFromQuery(nextQuery, currentView),
         );
       }
       setSelection([]);
@@ -296,12 +351,20 @@ export function DynamicSegmentList(): JSX.Element {
 
     window.addEventListener('hashchange', applyHashState);
     return () => window.removeEventListener('hashchange', applyHashState);
-  }, [clearLoadError, setView]);
+  }, [clearLoadError, getQueryDefaults, setView]);
 
-  const handleViewChange = (nextView: View): void => {
-    legacyOffsetRef.current = null;
-    setView(nextView);
-  };
+  const handleViewChange = useCallback(
+    (nextView: View): void => {
+      legacyOffsetRef.current = null;
+      onChangeView(nextView);
+    },
+    [onChangeView],
+  );
+  const persistedViewChange = usePersistedDataViewsPreference(
+    'dynamic-segments',
+    view,
+    handleViewChange,
+  );
 
   const handleBulkAction = useCallback(
     async (
@@ -533,7 +596,7 @@ export function DynamicSegmentList(): JSX.Element {
               data={items}
               fields={dynamicSegmentFields}
               view={view}
-              onChangeView={handleViewChange}
+              onChangeView={persistedViewChange}
               actions={actions}
               paginationInfo={paginationInfo}
               defaultLayouts={{ table: {} }}
@@ -545,6 +608,9 @@ export function DynamicSegmentList(): JSX.Element {
             >
               <div className="mailpoet-segments-dataviews__toolbar">
                 <DataViews.Search label={__('Search', 'mailpoet')} />
+                <div className="mailpoet-dataviews__toolbar-end">
+                  <DataViews.ViewConfig />
+                </div>
               </div>
               <DataViews.Layout />
               <DataViews.Footer />

@@ -13,6 +13,10 @@ import { __, _n, _x, sprintf } from '@wordpress/i18n';
 import { store as noticesStore } from '@wordpress/notices';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  getDataViewsPreference,
+  usePersistedDataViewsPreference,
+} from 'common/dataviews';
 import { storeName } from './store/constants';
 import type { AutomationItem } from './store/types';
 import { AutomationStatus } from './automation';
@@ -72,23 +76,30 @@ function getGroupFromSearch(search: URLSearchParams): Group {
   return groupNames.includes(status as Group) ? (status as Group) : 'all';
 }
 
-function getViewFromSearch(search: URLSearchParams): View {
+function getViewFromSearch(
+  search: URLSearchParams,
+  defaultView = DEFAULT_VIEW,
+): View {
   const order = search.get('order');
   const orderby = search.get('orderby');
   return {
-    ...DEFAULT_VIEW,
-    page: parsePositiveInt(search.get('paged')) ?? DEFAULT_VIEW.page,
-    perPage: parsePositiveInt(search.get('per_page')) ?? DEFAULT_VIEW.perPage,
+    ...defaultView,
+    page: parsePositiveInt(search.get('paged')) ?? defaultView.page,
+    perPage: parsePositiveInt(search.get('per_page')) ?? defaultView.perPage,
     search: search.get('search') ?? undefined,
     sort:
       orderby && (order === 'asc' || order === 'desc')
         ? { field: orderby, direction: order }
-        : undefined,
+        : defaultView.sort,
   };
 }
 
-function viewMatchesSearch(view: View, search: URLSearchParams): boolean {
-  const searchView = getViewFromSearch(search);
+function viewMatchesSearch(
+  view: View,
+  search: URLSearchParams,
+  defaultView = DEFAULT_VIEW,
+): boolean {
+  const searchView = getViewFromSearch(search, defaultView);
   return (
     (view.page ?? 1) === (searchView.page ?? 1) &&
     (view.perPage ?? DEFAULT_PER_PAGE) ===
@@ -240,11 +251,15 @@ export function AutomationListingHeader(): JSX.Element {
 export function AutomationListing(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
+  const defaultView = useMemo(
+    () => getDataViewsPreference('automation', DEFAULT_VIEW, automationFields),
+    [],
+  );
   const [group, setGroup] = useState<Group>(() =>
     getGroupFromSearch(new URLSearchParams(location.search)),
   );
   const [view, setView] = useState<View>(() =>
-    getViewFromSearch(new URLSearchParams(location.search)),
+    getViewFromSearch(new URLSearchParams(location.search), defaultView),
   );
   const [selection, setSelection] = useState<string[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
@@ -279,13 +294,23 @@ export function AutomationListing(): JSX.Element {
   useEffect(() => {
     const nextSearch = new URLSearchParams(location.search);
     const nextGroup = getGroupFromSearch(nextSearch);
+    // Resolve omitted URL params against the current preference-merged
+    // defaults so browser navigation restores the view the URL was written
+    // against.
+    const currentDefaultView = getDataViewsPreference(
+      'automation',
+      DEFAULT_VIEW,
+      automationFields,
+    );
     let selectionShouldBeCleared = false;
     if (nextGroup !== latestGroupRef.current) {
       setGroup(nextGroup);
       selectionShouldBeCleared = true;
     }
-    if (!viewMatchesSearch(latestViewRef.current, nextSearch)) {
-      setView(getViewFromSearch(nextSearch));
+    if (
+      !viewMatchesSearch(latestViewRef.current, nextSearch, currentDefaultView)
+    ) {
+      setView(getViewFromSearch(nextSearch, currentDefaultView));
       selectionShouldBeCleared = true;
     }
     if (selectionShouldBeCleared) {
@@ -303,7 +328,13 @@ export function AutomationListing(): JSX.Element {
       } else {
         newSearch.delete('paged');
       }
-      if ((nextView.perPage ?? DEFAULT_PER_PAGE) !== DEFAULT_PER_PAGE) {
+      // Compare against the preference-merged default, resolved at write time
+      // (not the hardcoded one, not a mount-time snapshot), so reloading a
+      // URL without `per_page` resolves to the same view it was written from.
+      const defaultPerPage =
+        getDataViewsPreference('automation', DEFAULT_VIEW, automationFields)
+          .perPage ?? DEFAULT_PER_PAGE;
+      if ((nextView.perPage ?? defaultPerPage) !== defaultPerPage) {
         newSearch.set('per_page', String(nextView.perPage));
       } else {
         newSearch.delete('per_page');
@@ -339,6 +370,11 @@ export function AutomationListing(): JSX.Element {
       updateUrlSearchString(group, nextView);
     },
     [group, updateUrlSearchString],
+  );
+  const persistedViewChange = usePersistedDataViewsPreference(
+    'automation',
+    view,
+    handleViewChange,
   );
 
   const handleTabSelect = (tabName: string): void => {
@@ -603,7 +639,7 @@ export function AutomationListing(): JSX.Element {
               data={data}
               fields={automationFields}
               view={view}
-              onChangeView={handleViewChange}
+              onChangeView={persistedViewChange}
               actions={actions}
               paginationInfo={paginationInfo}
               defaultLayouts={{ table: {} }}
@@ -619,6 +655,9 @@ export function AutomationListing(): JSX.Element {
                 <DataViews.Search
                   label={__('Search automations', 'mailpoet')}
                 />
+                <div className="mailpoet-dataviews__toolbar-end">
+                  <DataViews.ViewConfig />
+                </div>
               </div>
               <DataViews.Layout />
               <DataViews.Footer />

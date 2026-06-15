@@ -4,10 +4,15 @@ import { DataViews, View } from '@wordpress/dataviews';
 import { __ } from '@wordpress/i18n';
 
 import { Button } from 'common';
-import { useDataViewsQuery, type ListingQueryParams } from 'common/dataviews';
+import {
+  getDataViewsPreference,
+  usePersistedDataViewsPreference,
+  useDataViewsQuery,
+  type ListingQueryParams,
+} from 'common/dataviews';
 import { Datepicker } from '../common/datepicker/datepicker';
 import { buildLogsRequestParams, getLogs, type LogListingItem } from './api';
-import { getLogFields } from './fields';
+import { getLogFieldDefinitions, getLogFields } from './fields';
 import {
   buildLogsUrl,
   dateFromString,
@@ -35,13 +40,22 @@ function buildInitialView(defaultFrom: string): {
   view: View;
   dateFilters: DateFilters;
 } {
-  const state = parseLogsUrlState(window.location.href, defaultFrom);
+  const currentUrl = window.location.href;
+  const state = parseLogsUrlState(currentUrl, defaultFrom);
+  const searchParams = new URL(currentUrl).searchParams;
+  const hasPerPageUrlState =
+    searchParams.has('per_page') || searchParams.has('limit');
+  const preferredView = getDataViewsPreference(
+    'logs',
+    DEFAULT_VIEW,
+    getLogFieldDefinitions(),
+  );
 
   return {
     view: {
-      ...DEFAULT_VIEW,
+      ...preferredView,
       page: state.page,
-      perPage: state.perPage,
+      perPage: hasPerPageUrlState ? state.perPage : preferredView.perPage,
       search: state.search,
     },
     dateFilters: state.dateFilters,
@@ -111,6 +125,11 @@ export function List({ defaultFrom }: Props): JSX.Element {
       });
     },
     [setView, view],
+  );
+  const persistedViewChange = usePersistedDataViewsPreference(
+    'logs',
+    view,
+    updateView,
   );
 
   useEffect(() => {
@@ -191,7 +210,7 @@ export function List({ defaultFrom }: Props): JSX.Element {
         data={items}
         fields={fields}
         view={view}
-        onChangeView={updateView}
+        onChangeView={persistedViewChange}
         paginationInfo={paginationInfo}
         defaultLayouts={{ table: {} }}
         getItemId={(item) => String(item.id)}
@@ -264,6 +283,9 @@ export function List({ defaultFrom }: Props): JSX.Element {
             >
               {__('Clear', 'mailpoet')}
             </Button>
+          </div>
+          <div className="mailpoet-dataviews__toolbar-end">
+            <DataViews.ViewConfig />
           </div>
           {dateRangeError && (
             <div

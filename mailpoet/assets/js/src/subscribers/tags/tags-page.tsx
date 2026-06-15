@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { Notice } from '@wordpress/components';
 import { DataViews, View, Action } from '@wordpress/dataviews';
+import {
+  getDataViewsPreference,
+  usePersistedDataViewsPreference,
+} from 'common/dataviews';
 import { BackButton, PageHeader } from 'common/page-header';
 import { TopBarWithBoundary } from 'common/top-bar/top-bar';
 import { listFields } from './fields';
@@ -29,8 +33,20 @@ const DEFAULT_VIEW: View = {
   showTitle: true,
 };
 
+function resetPageWhenQueryChanges(currentView: View, nextView: View): View {
+  const searchChanged = (nextView.search ?? '') !== (currentView.search ?? '');
+  const perPageChanged = nextView.perPage !== currentView.perPage;
+
+  return {
+    ...nextView,
+    page: searchChanged || perPageChanged ? 1 : nextView.page,
+  };
+}
+
 export function TagsPage() {
-  const [view, setView] = useState<View>(DEFAULT_VIEW);
+  const [view, setView] = useState<View>(() =>
+    getDataViewsPreference('tags', DEFAULT_VIEW, listFields),
+  );
   const [items, setItems] = useState<Tag[]>([]);
   const [meta, setMeta] = useState<TagListMeta>({ count: 0, pages: 0 });
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +55,14 @@ export function TagsPage() {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [globalSuccess, setGlobalSuccess] = useState<string | null>(null);
   const latestRequestIdRef = useRef(0);
+  const updateView = useCallback((nextView: View): void => {
+    setView((currentView) => resetPageWhenQueryChanges(currentView, nextView));
+  }, []);
+  const handleViewChange = usePersistedDataViewsPreference(
+    'tags',
+    view,
+    updateView,
+  );
 
   const loadTags = useCallback(async () => {
     const requestId = latestRequestIdRef.current + 1;
@@ -223,7 +247,7 @@ export function TagsPage() {
           data={items}
           fields={listFields}
           view={view}
-          onChangeView={setView}
+          onChangeView={handleViewChange}
           actions={actions}
           paginationInfo={paginationInfo}
           defaultLayouts={{ table: {} }}
@@ -233,8 +257,11 @@ export function TagsPage() {
           isLoading={isLoading}
           empty={<div>{__('No tags yet.', 'mailpoet')}</div>}
         >
-          <div className="mailpoet-tags-dataviews__toolbar">
+          <div className="mailpoet-dataviews__toolbar">
             <DataViews.Search label={__('Search tags', 'mailpoet')} />
+            <div className="mailpoet-dataviews__toolbar-end">
+              <DataViews.ViewConfig />
+            </div>
           </div>
           <DataViews.Layout />
           <DataViews.Footer />

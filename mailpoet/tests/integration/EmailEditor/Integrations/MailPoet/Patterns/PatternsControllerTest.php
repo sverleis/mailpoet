@@ -43,7 +43,14 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertContains('mailpoet/first-purchase-thank-you', $patternNames);
     $this->assertContains('mailpoet/post-purchase-thank-you', $patternNames);
     $this->assertContains('mailpoet/product-purchase-follow-up', $patternNames);
+    $this->assertContains('mailpoet/tag-purchase-follow-up', $patternNames);
+    $this->assertContains('mailpoet/category-purchase-follow-up', $patternNames);
+    $this->assertContains('mailpoet/win-back-customer-reminder', $patternNames);
+    $this->assertContains('mailpoet/win-back-customer-final-nudge', $patternNames);
     $this->assertContains('mailpoet/ask-for-review-post-purchase', $patternNames);
+    $this->assertContains('mailpoet/positive-review-follow-up', $patternNames);
+    $this->assertContains('mailpoet/negative-review-follow-up', $patternNames);
+    $this->assertContains('mailpoet/reward-positive-reviewer', $patternNames);
     $this->assertContains('mailpoet/abandoned-cart-content', $patternNames);
     $this->assertContains('mailpoet/abandoned-cart-reminder-content', $patternNames);
 
@@ -53,7 +60,7 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertContains('mailpoet/abandoned-cart-with-discount-content', $patternNames);
 
     // Verify total count
-    $this->assertCount(17, $blockPatterns);
+    $this->assertCount(24, $blockPatterns);
   }
 
   public function testItRegistersAllCategoriesWhenWooCommerceIsActive(): void {
@@ -104,6 +111,11 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertIsArray($abandonedCartCategory);
     $this->assertEquals('abandoned-cart', $abandonedCartCategory['name']);
     $this->assertNotEmpty($abandonedCartCategory['label']);
+
+    $reviewCategory = $registry->get_registered('review');
+    $this->assertIsArray($reviewCategory);
+    $this->assertEquals('review', $reviewCategory['name']);
+    $this->assertNotEmpty($reviewCategory['label']);
   }
 
   public function testItDoesNotRegisterCouponPatternsWhenWooCommerceVersionIsBelowMinimum(): void {
@@ -130,7 +142,13 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertContains('mailpoet/first-purchase-thank-you', $patternNames);
     $this->assertContains('mailpoet/post-purchase-thank-you', $patternNames);
     $this->assertContains('mailpoet/product-purchase-follow-up', $patternNames);
+    $this->assertContains('mailpoet/tag-purchase-follow-up', $patternNames);
+    $this->assertContains('mailpoet/category-purchase-follow-up', $patternNames);
+    $this->assertContains('mailpoet/win-back-customer-reminder', $patternNames);
+    $this->assertContains('mailpoet/win-back-customer-final-nudge', $patternNames);
     $this->assertContains('mailpoet/ask-for-review-post-purchase', $patternNames);
+    $this->assertContains('mailpoet/positive-review-follow-up', $patternNames);
+    $this->assertContains('mailpoet/negative-review-follow-up', $patternNames);
     $this->assertContains('mailpoet/abandoned-cart-content', $patternNames);
     $this->assertContains('mailpoet/abandoned-cart-reminder-content', $patternNames);
 
@@ -138,9 +156,10 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertNotContains('mailpoet/welcome-with-discount-email-content', $patternNames);
     $this->assertNotContains('mailpoet/win-back-customer', $patternNames);
     $this->assertNotContains('mailpoet/abandoned-cart-with-discount-content', $patternNames);
+    $this->assertNotContains('mailpoet/reward-positive-reviewer', $patternNames);
 
-    // Verify total count (all patterns except 3 coupon patterns)
-    $this->assertCount(14, $blockPatterns);
+    // Verify total count (all patterns except 4 coupon patterns)
+    $this->assertCount(20, $blockPatterns);
   }
 
   /**
@@ -166,6 +185,7 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertContains('mailpoet/welcome-with-discount-email-content', $patternNames);
     $this->assertContains('mailpoet/win-back-customer', $patternNames);
     $this->assertContains('mailpoet/abandoned-cart-with-discount-content', $patternNames);
+    $this->assertContains('mailpoet/reward-positive-reviewer', $patternNames);
   }
 
   public function dataProviderForWooCommerceVersionsWithCouponSupport(): array {
@@ -201,6 +221,53 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertStringContainsString('"expiryDay":10', $patternsByName['mailpoet/welcome-with-discount-email-content']['content']);
     $this->assertStringContainsString('"amount":15', $patternsByName['mailpoet/win-back-customer']['content']);
     $this->assertStringContainsString('"expiryDay":1', $patternsByName['mailpoet/abandoned-cart-with-discount-content']['content']);
+
+    $winBackEmailContent = $patterns->getPatternContent('win-back-customer');
+    $this->assertIsString($winBackEmailContent);
+    $this->assertStringContainsString('wp:woocommerce/coupon-code', $winBackEmailContent);
+    $this->assertStringContainsString('mailpoet/product-collection/order-cross-sells', $winBackEmailContent);
+  }
+
+  public function testWinBackReminderPatternDoesNotUseGeneratedCouponBlock(): void {
+    $wooCommerceHelper = $this->createMock(WooCommerceHelper::class);
+    $wooCommerceHelper->method('isWooCommerceActive')->willReturn(true);
+    $wooCommerceHelper->method('getWooCommerceVersion')->willReturn('10.7.0');
+    $wooCommerceHelper->method('wcSupportsOrderReviewUrl')->willReturn(true);
+
+    $patterns = new PatternsController(
+      $this->diContainer->get(CdnAssetUrl::class),
+      $this->diContainer->get(WPFunctions::class),
+      $wooCommerceHelper
+    );
+
+    $content = $patterns->getPatternContent('win-back-customer-reminder');
+
+    $this->assertIsString($content);
+    $this->assertStringContainsString('We miss you', $content);
+    $this->assertStringContainsString('wp:button', $content);
+    $this->assertStringContainsString('mailpoet/product-collection/order-cross-sells', $content);
+    $this->assertStringNotContainsString('wp:woocommerce/coupon-code', $content);
+  }
+
+  public function testWinBackFinalNudgePatternDoesNotUseGeneratedCouponBlock(): void {
+    $wooCommerceHelper = $this->createMock(WooCommerceHelper::class);
+    $wooCommerceHelper->method('isWooCommerceActive')->willReturn(true);
+    $wooCommerceHelper->method('getWooCommerceVersion')->willReturn('10.7.0');
+    $wooCommerceHelper->method('wcSupportsOrderReviewUrl')->willReturn(true);
+
+    $patterns = new PatternsController(
+      $this->diContainer->get(CdnAssetUrl::class),
+      $this->diContainer->get(WPFunctions::class),
+      $wooCommerceHelper
+    );
+
+    $content = $patterns->getPatternContent('win-back-customer-final-nudge');
+
+    $this->assertIsString($content);
+    $this->assertStringContainsString('Still thinking it over?', $content);
+    $this->assertStringContainsString('mailpoet/product-collection/order-cross-sells', $content);
+    $this->assertStringNotContainsString('[coupon code]', $content);
+    $this->assertStringNotContainsString('wp:woocommerce/coupon-code', $content);
   }
 
   public function testAskForReviewPatternContainsReviewButtonWithOrderReviewUrlTag(): void {
@@ -224,6 +291,65 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertStringNotContainsString('data-link-href="[woocommerce/order-review-url]"', $content);
     $this->assertStringContainsString('[woocommerce/order-review-url]', $content);
     $this->assertStringContainsString('How was your experience?', $content);
+  }
+
+  public function testPositiveReviewFollowUpPatternContainsReviewCopy(): void {
+    $wooCommerceHelper = $this->createMock(WooCommerceHelper::class);
+    $wooCommerceHelper->method('isWooCommerceActive')->willReturn(true);
+    $wooCommerceHelper->method('getWooCommerceVersion')->willReturn('10.8.0');
+    $wooCommerceHelper->method('wcSupportsOrderReviewUrl')->willReturn(true);
+
+    $patterns = new PatternsController(
+      $this->diContainer->get(CdnAssetUrl::class),
+      $this->diContainer->get(WPFunctions::class),
+      $wooCommerceHelper
+    );
+
+    $content = $patterns->getPatternContent('positive-review-follow-up');
+
+    $this->assertIsString($content);
+    $this->assertStringContainsString('Thanks for your review!', $content);
+    $this->assertStringContainsString('Your review made our day.', $content);
+  }
+
+  public function testNegativeReviewFollowUpPatternContainsReviewCopy(): void {
+    $wooCommerceHelper = $this->createMock(WooCommerceHelper::class);
+    $wooCommerceHelper->method('isWooCommerceActive')->willReturn(true);
+    $wooCommerceHelper->method('getWooCommerceVersion')->willReturn('10.8.0');
+    $wooCommerceHelper->method('wcSupportsOrderReviewUrl')->willReturn(true);
+
+    $patterns = new PatternsController(
+      $this->diContainer->get(CdnAssetUrl::class),
+      $this->diContainer->get(WPFunctions::class),
+      $wooCommerceHelper
+    );
+
+    $content = $patterns->getPatternContent('negative-review-follow-up');
+
+    $this->assertIsString($content);
+    $this->assertStringContainsString('Sorry to hear that', $content);
+    $this->assertStringContainsString('We’d like to understand what happened', $content);
+  }
+
+  public function testRewardPositiveReviewerPatternContainsCouponCopy(): void {
+    $wooCommerceHelper = $this->createMock(WooCommerceHelper::class);
+    $wooCommerceHelper->method('isWooCommerceActive')->willReturn(true);
+    $wooCommerceHelper->method('getWooCommerceVersion')->willReturn('10.8.0');
+    $wooCommerceHelper->method('wcSupportsOrderReviewUrl')->willReturn(true);
+
+    $patterns = new PatternsController(
+      $this->diContainer->get(CdnAssetUrl::class),
+      $this->diContainer->get(WPFunctions::class),
+      $wooCommerceHelper
+    );
+
+    $content = $patterns->getPatternContent('reward-positive-reviewer');
+
+    $this->assertIsString($content);
+    $this->assertStringContainsString('Thanks for your review!', $content);
+    $this->assertStringContainsString('wp:woocommerce/coupon-code', $content);
+    $this->assertStringContainsString('"source":"createNew"', $content);
+    $this->assertStringContainsString('Shop again', $content);
   }
 
   public function testItDoesNotRegisterAskForReviewPatternWhenOrderReviewUrlIsUnsupported(): void {
@@ -270,7 +396,12 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertNotContains('mailpoet/first-purchase-thank-you', $patternNames);
     $this->assertNotContains('mailpoet/post-purchase-thank-you', $patternNames);
     $this->assertNotContains('mailpoet/product-purchase-follow-up', $patternNames);
+    $this->assertNotContains('mailpoet/tag-purchase-follow-up', $patternNames);
+    $this->assertNotContains('mailpoet/category-purchase-follow-up', $patternNames);
     $this->assertNotContains('mailpoet/ask-for-review-post-purchase', $patternNames);
+    $this->assertNotContains('mailpoet/positive-review-follow-up', $patternNames);
+    $this->assertNotContains('mailpoet/negative-review-follow-up', $patternNames);
+    $this->assertNotContains('mailpoet/reward-positive-reviewer', $patternNames);
     $this->assertNotContains('mailpoet/win-back-customer', $patternNames);
     $this->assertNotContains('mailpoet/abandoned-cart-content', $patternNames);
     $this->assertNotContains('mailpoet/abandoned-cart-reminder-content', $patternNames);
@@ -306,6 +437,9 @@ class PatternsControllerTest extends \MailPoetTest {
 
     $abandonedCartCategory = $registry->get_registered('abandoned-cart');
     $this->assertNull($abandonedCartCategory);
+
+    $reviewCategory = $registry->get_registered('review');
+    $this->assertNull($reviewCategory);
   }
 
   public function testItAddsEmailContentToRestResponseForSplitPatterns(): void {
@@ -336,6 +470,10 @@ class PatternsControllerTest extends \MailPoetTest {
       'mailpoet/first-purchase-thank-you',
       'mailpoet/post-purchase-thank-you',
       'mailpoet/product-purchase-follow-up',
+      'mailpoet/tag-purchase-follow-up',
+      'mailpoet/category-purchase-follow-up',
+      'mailpoet/win-back-customer-reminder',
+      'mailpoet/win-back-customer-final-nudge',
       'mailpoet/win-back-customer',
       'mailpoet/abandoned-cart-content',
       'mailpoet/abandoned-cart-reminder-content',

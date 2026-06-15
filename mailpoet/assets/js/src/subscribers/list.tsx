@@ -17,13 +17,17 @@ import {
   useMemo,
   useRef,
   useState,
-  type SetStateAction,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import { Button } from 'common';
-import { useDataViewsQuery, type ListingQueryParams } from 'common/dataviews';
+import {
+  getDataViewsPreference,
+  usePersistedDataViewsPreference,
+  useDataViewsQuery,
+  type ListingQueryParams,
+} from 'common/dataviews';
 import type { ListingFilters, ListingGroup } from 'common/dataviews/types';
 import { Select } from 'common/form/select/select';
 import { MailPoet } from 'mailpoet';
@@ -172,10 +176,15 @@ function parseHash(): Partial<{
     }, {});
 }
 
+// `defaults` is the preference-merged view the listing falls back to when the
+// URL omits a param. Comparing against it (not the hardcoded site defaults)
+// keeps the URL round-trip lossless: reloading a URL without explicit params
+// resolves to the same view the URL was written from.
 function getListingPath(
   group: Group,
   view: View,
   filter: Record<string, string>,
+  defaults: View,
 ): string {
   const filterValue = new URLSearchParams(filter).toString();
   const entries: Array<[string, string | number | undefined]> = [
@@ -185,19 +194,21 @@ function getListingPath(
     ['page', view.page && view.page !== 1 ? view.page : undefined],
     [
       'limit',
-      view.perPage && view.perPage !== listingPerPage
+      view.perPage && view.perPage !== (defaults.perPage ?? listingPerPage)
         ? view.perPage
         : undefined,
     ],
     [
       'sort_by',
-      view.sort?.field && view.sort.field !== 'created_at'
+      view.sort?.field &&
+      view.sort.field !== (defaults.sort?.field ?? 'created_at')
         ? view.sort.field
         : undefined,
     ],
     [
       'sort_order',
-      view.sort?.direction && view.sort.direction !== 'desc'
+      view.sort?.direction &&
+      view.sort.direction !== (defaults.sort?.direction ?? 'desc')
         ? view.sort.direction
         : undefined,
     ],
@@ -213,8 +224,9 @@ function updateHash(
   group: Group,
   view: View,
   filter: Record<string, string>,
+  defaults: View,
 ): void {
-  const path = getListingPath(group, view, filter);
+  const path = getListingPath(group, view, filter, defaults);
   const hash = `#${path}`;
   if (window.location.hash !== hash) {
     window.history.replaceState(null, '', hash);
@@ -651,14 +663,62 @@ function SubscriberFilters({
   );
 }
 
+function NoItemsFound({
+  group,
+  search,
+  onWildcardSearch,
+}: {
+  group: Group;
+  search?: string;
+  onWildcardSearch: (search: string) => void;
+}) {
+  const term = search?.trim();
+  if (!term || term.includes('*')) {
+    return <>{__('No items found.', 'mailpoet')}</>;
+  }
+  const wildcardTerm = `*${term}`;
+  return (
+    <>
+      {createInterpolateElement(
+        sprintf(
+          // translators: %1$s is the search term the user typed, %2$s is the same term prefixed with the * wildcard.
+          __(
+            'No items found that begin with „%1$s“. Tip: use * to match anywhere, e.g. <link>%2$s</link>.',
+            'mailpoet',
+          ),
+          term,
+          wildcardTerm,
+        ),
+        {
+          link: (
+            <a
+              href={`#/group[${group}]/search[${encodeURIComponent(
+                wildcardTerm,
+              )}]`}
+              onClick={(event) => {
+                event.preventDefault();
+                onWildcardSearch(wildcardTerm);
+              }}
+            >
+              {wildcardTerm}
+            </a>
+          ),
+        },
+      )}
+    </>
+  );
+}
+
 function EmptyContent({
   group,
   search,
   onCheckTrash,
+  onWildcardSearch,
 }: {
   group: Group;
   search?: string;
   onCheckTrash: () => void;
+  onWildcardSearch: (search: string) => void;
 }) {
   if (
     group === 'bounced' &&
@@ -684,10 +744,14 @@ function EmptyContent({
   if (group !== 'trash' && search) {
     return (
       <p>
-        {__('No items found.', 'mailpoet')}{' '}
+        <NoItemsFound
+          group={group}
+          search={search}
+          onWildcardSearch={onWildcardSearch}
+        />
+        <br />
         <a
           href={`#/group[trash]/search[${encodeURIComponent(search)}]`}
-          className="button button-link"
           onClick={(event) => {
             event.preventDefault();
             onCheckTrash();
@@ -698,7 +762,15 @@ function EmptyContent({
       </p>
     );
   }
-  return <div>{__('No items found.', 'mailpoet')}</div>;
+  return (
+    <div>
+      <NoItemsFound
+        group={group}
+        search={search}
+        onWildcardSearch={onWildcardSearch}
+      />
+    </div>
+  );
 }
 
 function SubscriberList() {
@@ -718,14 +790,21 @@ function SubscriberList() {
   // double-click on Apply / Resend emails / Unsubscribe must not fan out into
   // two bulk-action requests.
   const pendingActionInFlightRef = useRef(false);
+  const [preferredView] = useState<View>(() =>
+    getDataViewsPreference(
+      'subscribers',
+      DEFAULT_VIEW,
+      getSubscriberFields(() => ''),
+    ),
+  );
   const [initialView] = useState<View>(() => ({
-    ...DEFAULT_VIEW,
-    page: hashState.page ?? DEFAULT_VIEW.page,
-    perPage: hashState.perPage ?? DEFAULT_VIEW.perPage,
+    ...preferredView,
+    page: hashState.page ?? preferredView.page,
+    perPage: hashState.perPage ?? preferredView.perPage,
     search: hashState.search,
     sort: {
-      field: hashState.orderby ?? DEFAULT_VIEW.sort?.field ?? 'created_at',
-      direction: hashState.order ?? DEFAULT_VIEW.sort?.direction ?? 'desc',
+      field: hashState.orderby ?? preferredView.sort?.field ?? 'created_at',
+      direction: hashState.order ?? preferredView.sort?.direction ?? 'desc',
     },
   }));
 
@@ -758,9 +837,21 @@ function SubscriberList() {
     load,
   });
 
+  // Resolve the URL defaults at write time (not mount time) so preferences
+  // persisted during the session are reflected.
+  const getPreferredView = useCallback(
+    () =>
+      getDataViewsPreference(
+        'subscribers',
+        DEFAULT_VIEW,
+        getSubscriberFields(() => ''),
+      ),
+    [],
+  );
+
   useEffect(() => {
-    updateHash(group, view, filter);
-  }, [filter, group, view]);
+    updateHash(group, view, filter, getPreferredView());
+  }, [filter, group, view, getPreferredView]);
 
   // When the active list/tag filter is no longer a selectable option (e.g.
   // select-all + Move to trash emptied the filtered list, so the backend
@@ -785,24 +876,28 @@ function SubscriberList() {
       setSelection([]);
       setSelectAll(false);
       clearLoadError();
+      // Fill hash segments the URL omits from the preference-merged defaults
+      // (not the in-memory view) so back/forward resolves a URL exactly like
+      // reopening it.
+      const preferredDefaults = getPreferredView();
       setView((currentView) => ({
         ...currentView,
         page: next.page ?? 1,
-        perPage: next.perPage ?? currentView.perPage,
+        perPage: next.perPage ?? preferredDefaults.perPage,
         search: next.search ?? '',
         sort: {
-          field: next.orderby ?? currentView.sort?.field ?? 'created_at',
-          direction: next.order ?? currentView.sort?.direction ?? 'desc',
+          field: next.orderby ?? preferredDefaults.sort?.field ?? 'created_at',
+          direction: next.order ?? preferredDefaults.sort?.direction ?? 'desc',
         },
       }));
     };
     window.addEventListener('hashchange', applyHash);
     return () => window.removeEventListener('hashchange', applyHash);
-  }, [clearLoadError, setView]);
+  }, [clearLoadError, getPreferredView, setView]);
 
   const backUrl = useMemo(
-    () => getListingPath(group, view, filter),
-    [filter, group, view],
+    () => getListingPath(group, view, filter, getPreferredView()),
+    [filter, group, view, getPreferredView],
   );
   const backUrlRef = useRef(backUrl);
   backUrlRef.current = backUrl;
@@ -880,7 +975,7 @@ function SubscriberList() {
   }, []);
 
   const handleViewChange = useCallback(
-    (nextView: SetStateAction<View>): void => {
+    (nextView: View): void => {
       // DataViews can't keep row checkboxes ticked across pages, so "select all
       // matching" would leave the banner claiming everything is selected while
       // the new page shows empty checkboxes. Drop the intent on any view change
@@ -890,6 +985,11 @@ function SubscriberList() {
       setView(nextView);
     },
     [setView],
+  );
+  const persistedViewChange = usePersistedDataViewsPreference(
+    'subscribers',
+    view,
+    handleViewChange,
   );
 
   const handleApiError = useCallback(
@@ -1243,6 +1343,12 @@ function SubscriberList() {
     setView((currentView) => ({ ...currentView, page: 1 }));
   };
 
+  const handleWildcardSearch = (search: string): void => {
+    setSelection([]);
+    clearLoadError();
+    setView((currentView) => ({ ...currentView, search, page: 1 }));
+  };
+
   const groupsToRender = useMemo(
     () =>
       (groups ?? [])
@@ -1440,7 +1546,7 @@ function SubscriberList() {
           data={items}
           fields={fields}
           view={view}
-          onChangeView={handleViewChange}
+          onChangeView={persistedViewChange}
           actions={actions}
           paginationInfo={paginationInfo}
           defaultLayouts={{ table: {} }}
@@ -1453,6 +1559,7 @@ function SubscriberList() {
               group={group}
               search={view.search}
               onCheckTrash={handleCheckTrash}
+              onWildcardSearch={handleWildcardSearch}
             />
           }
         >
@@ -1467,6 +1574,9 @@ function SubscriberList() {
                 void handleEmptyTrash();
               }}
             />
+            <div className="mailpoet-dataviews__toolbar-end">
+              <DataViews.ViewConfig />
+            </div>
           </div>
           <DataViews.Layout />
           <DataViews.Footer />
