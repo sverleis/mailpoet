@@ -2,6 +2,7 @@
 
 namespace MailPoet\EmailEditor\Integrations\MailPoet\Patterns;
 
+use MailPoet\EmailEditor\Integrations\MailPoet\Coupons\CouponBlock;
 use MailPoet\Util\CdnAssetUrl;
 use MailPoet\WooCommerce\Helper as WooCommerceHelper;
 use MailPoet\WP\Functions as WPFunctions;
@@ -38,6 +39,7 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertContains('mailpoet/product-restock-notification', $patternNames);
     $this->assertContains('mailpoet/new-arrivals-announcement', $patternNames);
     $this->assertContains('mailpoet/welcome-email-content', $patternNames);
+    $this->assertContains('mailpoet/birthday-email-content', $patternNames);
 
     // WooCommerce-dependent patterns (uses product blocks or purchase/abandoned-cart categories)
     $this->assertContains('mailpoet/first-purchase-thank-you', $patternNames);
@@ -56,11 +58,12 @@ class PatternsControllerTest extends \MailPoetTest {
 
     // WooCommerce 10.8.0+ patterns (uses generated coupon block)
     $this->assertContains('mailpoet/welcome-with-discount-email-content', $patternNames);
+    $this->assertContains('mailpoet/birthday-email-with-discount', $patternNames);
     $this->assertContains('mailpoet/win-back-customer', $patternNames);
     $this->assertContains('mailpoet/abandoned-cart-with-discount-content', $patternNames);
 
     // Verify total count
-    $this->assertCount(24, $blockPatterns);
+    $this->assertCount(26, $blockPatterns);
   }
 
   public function testItRegistersAllCategoriesWhenWooCommerceIsActive(): void {
@@ -102,6 +105,11 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertEquals('welcome', $welcomeCategory['name']);
     $this->assertNotEmpty($welcomeCategory['label']);
 
+    $celebrationsCategory = $registry->get_registered('celebrations');
+    $this->assertIsArray($celebrationsCategory);
+    $this->assertEquals('celebrations', $celebrationsCategory['name']);
+    $this->assertNotEmpty($celebrationsCategory['label']);
+
     $purchaseCategory = $registry->get_registered('purchase');
     $this->assertIsArray($purchaseCategory);
     $this->assertEquals('purchase', $purchaseCategory['name']);
@@ -137,6 +145,7 @@ class PatternsControllerTest extends \MailPoetTest {
     // Should include non-WooCommerce patterns
     $this->assertContains('mailpoet/newsletter-content', $patternNames);
     $this->assertContains('mailpoet/welcome-email-content', $patternNames);
+    $this->assertContains('mailpoet/birthday-email-content', $patternNames);
 
     // Should include WooCommerce patterns that don't require coupon block
     $this->assertContains('mailpoet/first-purchase-thank-you', $patternNames);
@@ -154,12 +163,13 @@ class PatternsControllerTest extends \MailPoetTest {
 
     // Should NOT include generated coupon block patterns (require WooCommerce 10.8.0+)
     $this->assertNotContains('mailpoet/welcome-with-discount-email-content', $patternNames);
+    $this->assertNotContains('mailpoet/birthday-email-with-discount', $patternNames);
     $this->assertNotContains('mailpoet/win-back-customer', $patternNames);
     $this->assertNotContains('mailpoet/abandoned-cart-with-discount-content', $patternNames);
     $this->assertNotContains('mailpoet/reward-positive-reviewer', $patternNames);
 
-    // Verify total count (all patterns except 4 coupon patterns)
-    $this->assertCount(20, $blockPatterns);
+    // Verify total count (all patterns except 5 coupon patterns)
+    $this->assertCount(21, $blockPatterns);
   }
 
   /**
@@ -183,6 +193,7 @@ class PatternsControllerTest extends \MailPoetTest {
 
     // Generated coupon block patterns should be registered for WooCommerce 10.8.0+ (including RC/beta)
     $this->assertContains('mailpoet/welcome-with-discount-email-content', $patternNames);
+    $this->assertContains('mailpoet/birthday-email-with-discount', $patternNames);
     $this->assertContains('mailpoet/win-back-customer', $patternNames);
     $this->assertContains('mailpoet/abandoned-cart-with-discount-content', $patternNames);
     $this->assertContains('mailpoet/reward-positive-reviewer', $patternNames);
@@ -216,11 +227,31 @@ class PatternsControllerTest extends \MailPoetTest {
     $blockPatterns = \WP_Block_Patterns_Registry::get_instance()->get_all_registered();
     $patternsByName = array_column($blockPatterns, null, 'name');
 
-    $this->assertStringContainsString('"source":"createNew"', $patternsByName['mailpoet/welcome-with-discount-email-content']['content']);
-    $this->assertStringContainsString('"amount":10', $patternsByName['mailpoet/welcome-with-discount-email-content']['content']);
-    $this->assertStringContainsString('"expiryDay":10', $patternsByName['mailpoet/welcome-with-discount-email-content']['content']);
-    $this->assertStringContainsString('"amount":15', $patternsByName['mailpoet/win-back-customer']['content']);
-    $this->assertStringContainsString('"expiryDay":1', $patternsByName['mailpoet/abandoned-cart-with-discount-content']['content']);
+    $this->assertGeneratedCouponPattern($patternsByName['mailpoet/welcome-with-discount-email-content']['content'], [
+      'align' => 'left',
+      'amount' => 10,
+      'expiryDay' => 10,
+    ]);
+    $this->assertGeneratedCouponPattern($patternsByName['mailpoet/birthday-email-with-discount']['content'], [
+      'align' => 'center',
+      'amount' => 10,
+      'expiryDay' => 10,
+    ]);
+    $this->assertGeneratedCouponPattern($patternsByName['mailpoet/win-back-customer']['content'], [
+      'align' => 'left',
+      'amount' => 15,
+      'expiryDay' => 10,
+    ]);
+    $this->assertGeneratedCouponPattern($patternsByName['mailpoet/abandoned-cart-with-discount-content']['content'], [
+      'align' => 'left',
+      'amount' => 10,
+      'expiryDay' => 1,
+    ]);
+    $this->assertGeneratedCouponPattern($patternsByName['mailpoet/reward-positive-reviewer']['content'], [
+      'align' => 'left',
+      'amount' => 10,
+      'expiryDay' => 10,
+    ]);
 
     $winBackEmailContent = $patterns->getPatternContent('win-back-customer');
     $this->assertIsString($winBackEmailContent);
@@ -244,9 +275,31 @@ class PatternsControllerTest extends \MailPoetTest {
 
     $this->assertIsString($content);
     $this->assertStringContainsString('We miss you', $content);
-    $this->assertStringContainsString('wp:button', $content);
+    $this->assertStringContainsString('New favorites may be waiting for you in the shop.', $content);
     $this->assertStringContainsString('mailpoet/product-collection/order-cross-sells', $content);
+    $this->assertStringNotContainsString('wp:button', $content);
+    $this->assertStringNotContainsString('You might also like', $content);
     $this->assertStringNotContainsString('wp:woocommerce/coupon-code', $content);
+  }
+
+  public function testPostPurchaseThankYouPatternUsesOrderAwareProducts(): void {
+    $wooCommerceHelper = $this->createMock(WooCommerceHelper::class);
+    $wooCommerceHelper->method('isWooCommerceActive')->willReturn(true);
+    $wooCommerceHelper->method('getWooCommerceVersion')->willReturn('10.8.0');
+    $wooCommerceHelper->method('wcSupportsOrderReviewUrl')->willReturn(true);
+
+    $patterns = new PatternsController(
+      $this->diContainer->get(CdnAssetUrl::class),
+      $this->diContainer->get(WPFunctions::class),
+      $wooCommerceHelper
+    );
+
+    $content = $patterns->getPatternContent('post-purchase-thank-you');
+
+    $this->assertIsString($content);
+    $this->assertStringContainsString('mailpoet/product-collection/order-cross-sells', $content);
+    $this->assertStringContainsString('Here are a few picks that pair well with your recent order.', $content);
+    $this->assertStringNotContainsString('You might also like', $content);
   }
 
   public function testWinBackFinalNudgePatternDoesNotUseGeneratedCouponBlock(): void {
@@ -390,9 +443,11 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertContains('mailpoet/newsletter-content', $patternNames);
     $this->assertContains('mailpoet/sale-announcement', $patternNames);
     $this->assertContains('mailpoet/welcome-email-content', $patternNames);
+    $this->assertContains('mailpoet/birthday-email-content', $patternNames);
 
     // Should NOT include WooCommerce-dependent patterns
     $this->assertNotContains('mailpoet/welcome-with-discount-email-content', $patternNames);
+    $this->assertNotContains('mailpoet/birthday-email-with-discount', $patternNames);
     $this->assertNotContains('mailpoet/first-purchase-thank-you', $patternNames);
     $this->assertNotContains('mailpoet/post-purchase-thank-you', $patternNames);
     $this->assertNotContains('mailpoet/product-purchase-follow-up', $patternNames);
@@ -408,7 +463,7 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertNotContains('mailpoet/abandoned-cart-with-discount-content', $patternNames);
 
     // Verify total count (only non-WooCommerce patterns)
-    $this->assertCount(8, $blockPatterns);
+    $this->assertCount(9, $blockPatterns);
   }
 
   public function testItDoesNotRegisterWooCommerceCategoriesWhenWooCommerceIsInactive(): void {
@@ -430,6 +485,7 @@ class PatternsControllerTest extends \MailPoetTest {
     $this->assertIsArray($registry->get_registered('event'));
     $this->assertIsArray($registry->get_registered('newsletter'));
     $this->assertIsArray($registry->get_registered('welcome'));
+    $this->assertIsArray($registry->get_registered('celebrations'));
 
     // Should NOT include WooCommerce-dependent categories
     $purchaseCategory = $registry->get_registered('purchase');
@@ -554,6 +610,34 @@ class PatternsControllerTest extends \MailPoetTest {
       $this->diContainer->get(WPFunctions::class),
       $wooCommerceHelper
     );
+  }
+
+  private function assertGeneratedCouponPattern(string $content, array $expectedAttributes): void {
+    $couponBlock = $this->findBlockByName(parse_blocks($content), CouponBlock::NAME);
+    $this->assertIsArray($couponBlock);
+
+    $this->assertSame(CouponBlock::withCreateNewDefaults($expectedAttributes), $couponBlock['attrs']);
+    $this->assertStringContainsString(CouponBlock::SAFE_PLACEHOLDER, (string)$couponBlock['innerHTML']);
+  }
+
+  private function findBlockByName(array $blocks, string $blockName): ?array {
+    foreach ($blocks as $block) {
+      if (!is_array($block)) {
+        continue;
+      }
+
+      if (($block['blockName'] ?? null) === $blockName) {
+        return $block;
+      }
+
+      $innerBlocks = isset($block['innerBlocks']) && is_array($block['innerBlocks']) ? $block['innerBlocks'] : [];
+      $foundBlock = $this->findBlockByName($innerBlocks, $blockName);
+      if ($foundBlock !== null) {
+        return $foundBlock;
+      }
+    }
+
+    return null;
   }
 
   private function cleanupPatterns(): void {

@@ -789,6 +789,15 @@ class SubscriberListingRepository extends ListingRepository {
       $sortBy = self::DEFAULT_SORT_BY;
     }
     $queryBuilder->addOrderBy("s.$sortBy", $sortOrder);
+    if ($sortBy !== 'id') {
+      // Deterministic tiebreaker so pagination stays stable when the sorted
+      // column has duplicate values. created_at has per-second granularity, so
+      // large or imported lists tie often; pairing it with id also matches the
+      // deleted_at_created index (deleted_at, created_at + implicit id), which
+      // serves the default listing with the WHERE pinning deleted_at, keeping
+      // the sort index-backed.
+      $queryBuilder->addOrderBy('s.id', $sortOrder);
+    }
   }
 
   public function getGroups(ListingDefinition $definition): array {
@@ -969,6 +978,11 @@ class SubscriberListingRepository extends ListingRepository {
       ->from($subscribersTable);
     $subscribersIdsQuery = $this->applyConstraintsForDynamicSegment($subscribersIdsQuery, $definition, $segment);
     $subscribersIdsQuery->orderBy($this->getDynamicSegmentSortColumn($sortBy, $subscribersTable), $sortOrder);
+    if ($sortBy !== 'id') {
+      // The page boundary is cut here, so this query needs the same id
+      // tiebreaker as applySorting() for pagination to stay stable.
+      $subscribersIdsQuery->addOrderBy($this->getDynamicSegmentSortColumn('id', $subscribersTable), $sortOrder);
+    }
     $subscribersIdsQuery->setFirstResult($definition->getOffset());
     $subscribersIdsQuery->setMaxResults($definition->getLimit());
 

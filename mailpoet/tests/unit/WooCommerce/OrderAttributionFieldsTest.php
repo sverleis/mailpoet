@@ -42,6 +42,56 @@ class OrderAttributionFieldsTest extends \MailPoetUnitTest {
     verify($fields)->arrayCount(count(self::WOO_DEFAULT_FIELDS) + count(OrderAttributionFields::FIELD_NAMES));
   }
 
+  public function testItBuildsWooAttributionMetaKeys(): void {
+    verify(OrderAttributionFields::getMetaKey(OrderAttributionFields::FIELD_CLICK_ID))
+      ->equals('_wc_order_attribution_mailpoet_click_id');
+    verify(OrderAttributionFields::getMetaKey('utm_source'))->equals('_wc_order_attribution_utm_source');
+  }
+
+  public function testItBuildsMultipleWooAttributionMetaKeys(): void {
+    verify(OrderAttributionFields::getMetaKeys([
+      OrderAttributionFields::FIELD_NEWSLETTER_ID,
+      OrderAttributionFields::FIELD_SUBSCRIBER_ID,
+    ]))->equals([
+      '_wc_order_attribution_mailpoet_newsletter_id',
+      '_wc_order_attribution_mailpoet_subscriber_id',
+    ]);
+  }
+
+  public function testAllMetaKeysDeriveFromTheSinglePrefixConstant(): void {
+    $prefix = OrderAttributionFields::META_PREFIX;
+    $fieldNames = array_merge(OrderAttributionFields::FIELD_NAMES, ['source_type', 'utm_source', 'utm_campaign']);
+    foreach ($fieldNames as $fieldName) {
+      verify(OrderAttributionFields::getMetaKey($fieldName))->equals($prefix . $fieldName);
+    }
+  }
+
+  /**
+   * STOMAIL-8144 acceptance: a Woo meta-key change must break one place, not many. The
+   * prefix literal may live only in OrderAttributionFields::META_PREFIX; every other
+   * consumer must derive its keys through getMetaKey(). This guard fails if a raw
+   * '_wc_order_attribution_' string literal is reintroduced anywhere else in the
+   * WooCommerce library. Doc comments referencing the prefix are not quoted literals and
+   * are intentionally not matched.
+   */
+  public function testWooMetaPrefixLiteralIsSingleSourced(): void {
+    $libDir = __DIR__ . '/../../../lib/WooCommerce';
+    $singleQuotedLiteral = "'" . OrderAttributionFields::META_PREFIX;
+    $doubleQuotedLiteral = '"' . OrderAttributionFields::META_PREFIX;
+    $filesWithLiteral = [];
+    $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($libDir, \FilesystemIterator::SKIP_DOTS));
+    foreach ($iterator as $fileInfo) {
+      if (!$fileInfo instanceof \SplFileInfo || !$fileInfo->isFile() || $fileInfo->getExtension() !== 'php') {
+        continue;
+      }
+      $contents = (string)file_get_contents($fileInfo->getPathname());
+      if (strpos($contents, $singleQuotedLiteral) !== false || strpos($contents, $doubleQuotedLiteral) !== false) {
+        $filesWithLiteral[] = $fileInfo->getFilename();
+      }
+    }
+    verify($filesWithLiteral)->equals(['OrderAttributionFields.php']);
+  }
+
   public function testItDoesNotAddFieldsWhenWooCommerceIsNotActive(): void {
     $orderAttributionFields = $this->createOrderAttributionFields(false);
 

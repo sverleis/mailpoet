@@ -299,6 +299,8 @@ class ContainerConfigurator implements IContainerConfigurator {
     $container->autowire(\MailPoet\PostEditorBlocks\SubscriptionFormBlock::class);
     $container->autowire(\MailPoet\PostEditorBlocks\NewsletterBlock::class)->setPublic(true);
     $container->autowire(\MailPoet\PostEditorBlocks\WooCommerceBlocksIntegration::class);
+    // Subscribers import CLI
+    $container->autowire(\MailPoet\Subscribers\ImportExport\Import\Cli::class)->setPublic(true);
     // Migrations
     $container->autowire(\MailPoet\Migrator\Cli::class)->setPublic(true);
     $container->autowire(\MailPoet\Migrator\Migrator::class)->setPublic(true);
@@ -340,6 +342,7 @@ class ContainerConfigurator implements IContainerConfigurator {
     $container->autowire(\MailPoet\Cron\Workers\ExportFilesCleanup::class)->setPublic(true);
     $container->autowire(\MailPoet\Cron\Workers\LogCleanup::class)->setPublic(true);
     $container->autowire(\MailPoet\Cron\Workers\SendingTaskSubscribersCleanup::class)->setPublic(true);
+    $container->autowire(\MailPoet\Cron\Workers\BounceTaskSubscribersCleanup::class)->setPublic(true);
     $container->autowire(\MailPoet\Cron\Workers\SendingQueueBodyCleanup::class)->setPublic(true);
     $container->autowire(\MailPoet\Cron\Workers\SubscribersEmailCount::class)->setPublic(true);
     $container->autowire(\MailPoet\Cron\Workers\InactiveSubscribers::class)->setPublic(true);
