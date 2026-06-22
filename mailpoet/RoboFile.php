@@ -43,13 +43,17 @@ class RoboFile extends \Robo\Tasks {
       ->run();
   }
 
-  public function cleanupCachedFiles() {
+  public function cleanupCachedFiles($opts = ['include-plugins' => false]) {
     $this->say('Cleaning up generated folder.');
     $this->_exec('rm -rf ' . __DIR__ . '/generated/*');
     $this->say('Cleaning up PHPStan cache.');
     $this->_exec('rm -rf ' . __DIR__ . '/temp/*');
-    $this->say('Cleaning up old testing plugins.');
-    $this->_exec('rm -rf ' . __DIR__ . '/tests/plugins/*');
+    if (!empty($opts['include-plugins'])) {
+      $this->say('Cleaning up old testing plugins.');
+      $this->_exec('rm -rf ' . __DIR__ . '/tests/plugins/*');
+    } else {
+      $this->say('Skipping testing plugins cleanup. Use --include-plugins to remove them.');
+    }
   }
 
   public function update() {
@@ -381,7 +385,10 @@ class RoboFile extends \Robo\Tasks {
   }
 
   public function testJavascript($xmlOutputFile = null) {
-    $command = './node_modules/.bin/mocha --recursive --require tests/javascript/mocha-env.mjs  tests/javascript --extension spec.ts';
+    // NODE_PATH lets specs resolve bare `common/...` module specifiers the same
+    // way Webpack's resolve.modules does (kept in sync with the `test` script in
+    // package.json).
+    $command = 'env NODE_PATH=$NODE_PATH:./assets/js/src ./node_modules/.bin/mocha --recursive --require tests/javascript/mocha-env.mjs  tests/javascript --extension spec.ts';
 
     if (!empty($xmlOutputFile)) {
       $command .= sprintf(

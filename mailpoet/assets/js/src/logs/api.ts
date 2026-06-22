@@ -5,7 +5,7 @@ import type {
   ListingQueryParams,
   ListingResponse,
 } from 'common/dataviews';
-import type { DateFilters } from './url-state';
+import type { LogsFilter } from './url-state';
 
 declare global {
   interface Window {
@@ -28,19 +28,24 @@ function ensureInitialized(): void {
 export type LogListingItem = {
   id: number;
   name: string;
+  level: number | null;
   message: string;
   created_at: string | null;
 };
 
+type ApiEnvelope<T> = {
+  data: T;
+};
+
 export function buildLogsRequestParams(
   params: ListingQueryParams,
-  dateFilters: DateFilters,
+  filters: LogsFilter,
 ): ListingQueryParams {
   const search = params.search?.trim();
   return {
     ...params,
     search: search || undefined,
-    filter: dateFilters,
+    filter: filters,
   };
 }
 
@@ -55,4 +60,25 @@ export async function getLogs(
     signal,
   });
   return response.data;
+}
+
+// Deletes the logs matching the listing's current filters and search, so a
+// deletion removes exactly the rows the filtered listing shows. `all` confirms
+// the unrestricted case (no filters, no search) where every log is removed.
+export async function deleteLogs(
+  filter: LogsFilter,
+  search: string | undefined,
+  all: boolean,
+): Promise<number> {
+  ensureInitialized();
+  const response = await apiFetch<ApiEnvelope<{ deleted: number }>>({
+    path: '/mailpoet/v1/logs/delete',
+    method: 'POST',
+    data: {
+      filter,
+      search: search?.trim() || undefined,
+      all,
+    },
+  });
+  return response.data.deleted;
 }

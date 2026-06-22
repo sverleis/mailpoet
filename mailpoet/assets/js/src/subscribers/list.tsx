@@ -40,11 +40,11 @@ import { getSubscriberFields } from './fields';
 import { SelectAllBanner } from './select-all-banner';
 import { selectAllBannerState, shouldWarnLargeOperation } from './select-all';
 import { pruneUnavailableFilters } from './filter-sync';
+import { getInitialPickerValue, type PickerConfig } from './picker-value';
 import {
   bulkAction,
   getSubscribers,
   sendConfirmationEmail,
-  type Segment,
   type Subscriber,
   type SubscriberApiError,
   type SubscriberBulkAction,
@@ -89,11 +89,17 @@ const bulkConfirmationResendLimit =
 const bulkConfirmationCheckboxId = 'bulk-resend-confirmation-checkbox-input';
 const listingPerPage = Number(window.mailpoet_listing_per_page);
 
+// `created_at` is the only sortable column (STOMAIL-8162): the backend can't
+// efficiently serve sorts on other columns at scale, so we pin the sort field
+// here and never let a stale URL hash or persisted preference ask the listing
+// to sort on anything else. Only the direction (asc/desc) varies.
+const SORT_FIELD = 'created_at';
+
 const DEFAULT_VIEW: View = {
   type: 'table',
   perPage: listingPerPage,
   page: 1,
-  sort: { field: 'created_at', direction: 'desc' },
+  sort: { field: SORT_FIELD, direction: 'desc' },
   fields: [
     'status',
     'segments',
@@ -127,7 +133,6 @@ function parseHash(): Partial<{
   group: Group;
   page: number;
   perPage: number;
-  orderby: string;
   order: 'asc' | 'desc';
   search: string;
   filter: Record<string, string>;
@@ -156,9 +161,6 @@ function parseHash(): Partial<{
       }
       if ((key === 'per_page' || key === 'limit') && Number(value) > 0) {
         return { ...params, perPage: Number(value) };
-      }
-      if (key === 'sort_by' || key === 'orderby') {
-        return { ...params, orderby: value };
       }
       if (
         (key === 'sort_order' || key === 'order') &&
@@ -199,13 +201,6 @@ function getListingPath(
         : undefined,
     ],
     [
-      'sort_by',
-      view.sort?.field &&
-      view.sort.field !== (defaults.sort?.field ?? 'created_at')
-        ? view.sort.field
-        : undefined,
-    ],
-    [
       'sort_order',
       view.sort?.direction &&
       view.sort.direction !== (defaults.sort?.direction ?? 'desc')
@@ -243,15 +238,6 @@ function isItemDeletable(subscriber: Subscriber): boolean {
 function formatCount(count: number): string {
   return count.toLocaleString();
 }
-
-type PickerKind = 'segment' | 'tag';
-
-type PickerConfig = {
-  kind: PickerKind;
-  fieldId: string;
-  endpoint: 'segments' | 'tags';
-  filter?: (segment: Segment) => boolean;
-};
 
 const PICKERS: Record<
   Exclude<PendingModalAction, 'unsubscribe' | 'resendConfirmationEmails'>,
@@ -544,19 +530,28 @@ function PickerModal({
   title,
   config,
   caveat,
+  requireChoice,
   onApply,
   onClose,
 }: {
   title: string;
   config: PickerConfig;
   caveat?: JSX.Element | null;
+  requireChoice?: boolean;
   onApply: (value: number) => void;
   onClose: () => void;
 }) {
   // The legacy `Selection` form widget wraps Select2 + jQuery. We treat it as
   // a controlled component by reading values out of its `onValueChange` callback
   // — no jQuery DOM lookups leak into this file.
-  const [value, setValue] = useState<number>(0);
+  //
+  // For a select-all bulk action (`requireChoice`) the picker must start empty
+  // so the operation can't be applied to the first list/tag by an accidental
+  // click: a placeholder preselects nothing and Apply stays disabled until a
+  // choice is made. Otherwise seed the first option so Apply is usable at once.
+  const [value, setValue] = useState<number>(() =>
+    requireChoice ? 0 : getInitialPickerValue(config),
+  );
   const fieldConfig = useMemo(
     () => ({
       id: config.fieldId,
@@ -564,16 +559,16 @@ function PickerModal({
       endpoint: config.endpoint,
       filter: config.filter,
       forceSelect2: true,
-      // A placeholder forces Select2 to render a blank leading option and
-      // preselect nothing, so the Apply button's disabled-until-chosen state
-      // reads as intentional rather than broken — and a select-all bulk action
-      // can't be applied to the first list/tag by an accidental click.
-      placeholder:
-        config.kind === 'segment'
-          ? __('Select a list...', 'mailpoet')
-          : __('Select a tag...', 'mailpoet'),
+      ...(requireChoice
+        ? {
+            placeholder:
+              config.kind === 'segment'
+                ? __('Select a list...', 'mailpoet')
+                : __('Select a tag...', 'mailpoet'),
+          }
+        : {}),
     }),
-    [config],
+    [config, requireChoice],
   );
 
   const handleApply = (): void => {
@@ -803,7 +798,7 @@ function SubscriberList() {
     perPage: hashState.perPage ?? preferredView.perPage,
     search: hashState.search,
     sort: {
-      field: hashState.orderby ?? preferredView.sort?.field ?? 'created_at',
+      field: SORT_FIELD,
       direction: hashState.order ?? preferredView.sort?.direction ?? 'desc',
     },
   }));
@@ -893,7 +888,7 @@ function SubscriberList() {
         perPage: next.perPage ?? preferredDefaults.perPage,
         search: next.search ?? '',
         sort: {
-          field: next.orderby ?? preferredDefaults.sort?.field ?? 'created_at',
+          field: SORT_FIELD,
           direction: next.order ?? preferredDefaults.sort?.direction ?? 'desc',
         },
       }));
@@ -1487,6 +1482,7 @@ function SubscriberList() {
         title={modalTitle(action)}
         config={config}
         caveat={largeOpCaveat}
+        requireChoice={pendingSelectAll}
         onApply={(value) =>
           handlePendingActionSubmit(
             config.kind === 'segment'

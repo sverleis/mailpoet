@@ -200,6 +200,116 @@ class BridgeApiTest extends \MailPoetTest {
     verify($result['error'])->equals('This domain was already added to the list.');
   }
 
+  public function testItFetchesBouncesReportWithIsoUtcRange() {
+    $from = new \DateTimeImmutable('2026-06-15 23:59:59', new \DateTimeZone('UTC'));
+    $to = new \DateTimeImmutable('2026-06-16 23:59:59', new \DateTimeZone('UTC'));
+    // The endpoint returns recipients as {email, type} objects; getBouncesReport
+    // flattens them to plain email addresses.
+    $wireReport = ['recipients' => [['email' => 'bob@example.com', 'type' => 'hard']], 'page' => 2, 'has_more' => false];
+    $flattenedReport = ['recipients' => ['bob@example.com'], 'page' => 2, 'has_more' => false];
+    $this->wpMock
+      ->expects($this->once())
+      ->method('addQueryArg')
+      ->with(
+        [
+          'from' => '2026-06-15T23:59:59Z',
+          'to' => '2026-06-16T23:59:59Z',
+          'p' => 2,
+        ],
+        $this->api->urlBouncesReport
+      )
+      ->willReturn('https://bridge.example/report');
+    $this->wpMock
+      ->expects($this->once())
+      ->method('wpRemoteRetrieveResponseCode')
+      ->willReturn(200);
+    $this->wpMock
+      ->expects($this->once())
+      ->method('wpRemoteRetrieveBody')
+      ->willReturn((string)json_encode($wireReport));
+    verify($this->api->getBouncesReport($from, $to, 2))->equals($flattenedReport);
+  }
+
+  public function testItConvertsBouncesReportRangeToUtc() {
+    $from = new \DateTimeImmutable('2026-06-16 01:59:59', new \DateTimeZone('+02:00'));
+    $to = new \DateTimeImmutable('2026-06-17 01:59:59', new \DateTimeZone('+02:00'));
+    $this->wpMock
+      ->expects($this->once())
+      ->method('addQueryArg')
+      ->with(
+        [
+          'from' => '2026-06-15T23:59:59Z',
+          'to' => '2026-06-16T23:59:59Z',
+          'p' => 1,
+        ],
+        $this->api->urlBouncesReport
+      )
+      ->willReturn('https://bridge.example/report');
+    $this->wpMock
+      ->method('wpRemoteRetrieveResponseCode')
+      ->willReturn(200);
+    $this->wpMock
+      ->method('wpRemoteRetrieveBody')
+      ->willReturn((string)json_encode(['recipients' => [], 'page' => 1, 'has_more' => false]));
+    $this->api->getBouncesReport($from, $to);
+  }
+
+  public function testItReturnsNullWhenBouncesReportRequestFails() {
+    $from = new \DateTimeImmutable('2026-06-15 23:59:59', new \DateTimeZone('UTC'));
+    $to = new \DateTimeImmutable('2026-06-16 23:59:59', new \DateTimeZone('UTC'));
+    $this->wpMock
+      ->method('addQueryArg')
+      ->willReturn('https://bridge.example/report');
+    $this->wpMock
+      ->expects($this->once())
+      ->method('wpRemoteRetrieveResponseCode')
+      ->willReturn(500);
+    verify($this->api->getBouncesReport($from, $to))->null();
+  }
+
+  public function testItReturnsNullAndLogsWhenBouncesReportPayloadIsMalformed() {
+    $from = new \DateTimeImmutable('2026-06-15 23:59:59', new \DateTimeZone('UTC'));
+    $to = new \DateTimeImmutable('2026-06-16 23:59:59', new \DateTimeZone('UTC'));
+    $this->wpMock
+      ->method('addQueryArg')
+      ->willReturn('https://bridge.example/report');
+    $this->wpMock
+      ->method('wpRemoteRetrieveResponseCode')
+      ->willReturn(200);
+    // Valid JSON, but missing has_more: a 200 must not be treated as a complete
+    // empty page that advances the report window.
+    $this->wpMock
+      ->method('wpRemoteRetrieveBody')
+      ->willReturn((string)json_encode(['recipients' => [['email' => 'bob@example.com', 'type' => 'hard']], 'page' => 1]));
+
+    verify($this->api->getBouncesReport($from, $to))->null();
+
+    $logs = $this->logRepository->findAll();
+    verify($logs)->arrayCount(1);
+    $errorLog = $logs[0];
+    $this->assertInstanceOf(LogEntity::class, $errorLog);
+    verify($errorLog->getLevel())->equals(Logger::ERROR);
+    verify($errorLog->getMessage())->stringContainsString('getBouncesReport API response was not in expected format.');
+  }
+
+  public function testItRejectsBouncesReportRecipientsWithoutAnEmail() {
+    $from = new \DateTimeImmutable('2026-06-15 23:59:59', new \DateTimeZone('UTC'));
+    $to = new \DateTimeImmutable('2026-06-16 23:59:59', new \DateTimeZone('UTC'));
+    $this->wpMock
+      ->method('addQueryArg')
+      ->willReturn('https://bridge.example/report');
+    $this->wpMock
+      ->method('wpRemoteRetrieveResponseCode')
+      ->willReturn(200);
+    // A recipient missing the email key (e.g. the pre-{email,type} string shape)
+    // must be rejected rather than silently dropped.
+    $this->wpMock
+      ->method('wpRemoteRetrieveBody')
+      ->willReturn((string)json_encode(['recipients' => ['bob@example.com'], 'page' => 1, 'has_more' => false]));
+
+    verify($this->api->getBouncesReport($from, $to))->null();
+  }
+
   public function testVerifyDomainLogsErrorWhenResponseHasUnexpectedFormat() {
     $this->wpMock
       ->expects($this->once())
